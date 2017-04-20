@@ -3,67 +3,208 @@ import numpy as np
 import glob
 import os, zipfile
 import matplotlib.pyplot as plt
-
-#dir_name = 'C:\\SomeDirectory'
-#extension = ".zip"
-
-#os.chdir(dir_name) # change directory from working dir to dir with files
-
-#for item in os.listdir(dir_name): # loop through items in dir
-#    if item.endswith(extension): # check for ".zip" extension
-#        file_name = os.path.abspath(item) # get full path of files
-#        zip_ref = zipfile.ZipFile(file_name) # create zipfile object
-#        zip_ref.extractall(dir_name) # extract file to dir
-#        zip_ref.close() # close file
-#        os.remove(file_name) # delete zipped file
-
-#all_data = pd.DataFrame()
-#for f in glob.glob("../in/sales*.xlsx"):
-#    df = pd.read_csv(f)
-#	 date_name = f[15:-4]
-#	 df['Date'] = date_name
-#    all_data = all_data.append(df,ignore_index=True)
-#	 
-
-#path = ' '                      # use your path
-#all_files = glob.glob(os.path.join(path, "*.csv"))     # advisable to use os.path.join as this makes concatenation OS independent
-#df_from_each_file = (pd.read_csv(f) for f in all_files)
-#concatenated_df   = pd.concat(df_from_each_file, ignore_index=True)
+import datetime
+import pickle
 
 
-data = pd.read_csv('data.csv', sep=';')
-data['Price'] = data.Omzet / data.Verkocht
+# In[ ]:
 
-# Calculate the total return and amount of sold items
-totalreturn = data['Omzet'].sum()
-totalamount = data['Verkocht'].sum()
+''''dir_name = 'C:/Users/laptop/Documents/Data/2016'
+extension = ".zip"
 
-# Create a new column with the weight of the item for the total return and amount
-data['wReturn'] = data['Omzet'] / totalreturn
-data['wAmount'] = data['Verkocht'] / totalamount
+os.chdir(dir_name) # change directory from working dir to dir with files
 
-# Get amount of weeks in data
-periods = data['Week'].nunique() - 1
-# Calculate change (percentage) of EAN for each branch for last period to period 1
-data['Change'] = data.groupby(['Filiaal', 'EAN'])['Price'].pct_change(periods=periods)
-
+for item in os.listdir(dir_name): # loop through items in dir
+    if item.endswith(extension): # check for ".zip" extension
+        file_name = os.path.abspath(item) # get full path of files
+        zip_ref = zipfile.ZipFile(file_name) # create zipfile object
+        zip_ref.extractall(dir_name) # extract file to dir
+        zip_ref.close() # close file
+        os.remove(file_name) # delete zipped file''''
 
 
-'''
-# Calculate change (percentage) of EAN over all branches
-# data['Change'] = data.groupby(['EAN'])['Price'].pct_change()
+# In[42]:
 
-# Get total change of an item by EAN
-print(data.groupby(['Week', 'EAN'])['Change'].mean() + 100)
+tdf = pd.DataFrame()
+for x in glob.glob("C:/Users/laptop/Documents/Data/all/cbs_ah_product_referentie*.txt"):
+    for y in glob.glob("C:/Users/laptop/Documents/Data/all/cbs_ah_regulier*.txt"):
+        if x[-8:-4] == y[-8:-4]:
+            i =  pd.read_table(x, sep = ';', encoding='latin-1', header=None)
+            j = pd.read_table(y, sep = ';', encoding='latin-1', header=None)
+            j['Date'] =  datetime.datetime.strptime(y[-10:-4], "%y%m%d")
+            m = pd.merge(j, i, how='left', left_on=4, right_on=0, left_index=False, right_index=False)
+            tdf = tdf.append(m, ignore_index=True)
 
-# Get total change for all seperate branches
-print(data.groupby(['Week', 'Filiaal'])['Change'].mean() + 100)
+tdf.columns = ['EAN', 'Week', 'Year', 'Storecode', 'Storekind', 'EAN2', 'Sale', 'Turnover', 'Amount', 'Empty', 'Date', 'EAN3', 'ID', 'Description', 'Contentamount', 'Contentsort', 'Group1', 'Description1', 'Group2', 'Description2', 'Group3', 'Description3', 'Group4', 'Description4']
+tdf.Turnover = tdf.Turnover / 100
+tdf['Price'] = tdf.Turnover / tdf.Amount
+totalreturn = tdf.Turnover.sum()
+totalamount = tdf.Amount.sum()
 
-# Get total change over all branches and EANs
-totalchange = data.groupby(['Week'])['Change'].mean() + 100
-totalchange.fillna(100, inplace=True)
+tdf['wReturn'] = tdf['Turnover'] / totalreturn
+tdf['wAmount'] = tdf['Amount'] / totalamount
+tdf['Quarter'] = tdf['Date'].dt.quarter
+tdf['Month'] = tdf['Date'].dt.month
 
-totalchange.plot(kind='line')
-plt.show()'''
+#Select only rows where product is not on sale.
+tdfs = tdf[tdf.Sale != 'J']
+#tdfs = tdfs[(tdfs.Storecode == 4) | (tdfs.Storecode == 5)]
+tdfs = tdfs.drop(['EAN2', 'EAN3', 'Storekind', 'Sale', 'Contentamount', 'Contentsort'], axis=1)
 
-data.to_csv('output.csv')
+tdf.to_pickle('tdf.pickle')
+tdfs.to_pickle('tdfs.pickle')
+# In[17]:
+
+tdf = pd.read_pickle('tdf.pickle')
+tdfs = pd.read_pickle('tdfs.pickle')
+
+
+def createdataframe(groupA, groupB, groupC): 
+    df = pd.DataFrame()
+    df['AvgPrice']= tdfs.groupby([groupA, groupB, groupC])['Price'].mean()
+    df = df.reset_index()
+    df['Change'] = df.groupby([groupA])['AvgPrice'].pct_change()
+    df = df.replace([np.inf, -np.inf], np.nan)
+    return df;
+
+EW = createdataframe('EAN', 'Year', 'Week')
+EM = createdataframe('EAN', 'Year', 'Month')
+EQ = createdataframe('EAN', 'Year', 'Quarter')
+
+# In[24]:
+
+def createdataframey(groupA, groupB): 
+    df = pd.DataFrame()
+    df['AvgPrice']= tdfs.groupby([groupA, groupB])['Price'].mean()
+    df = df.reset_index()
+    df['Change'] = df.groupby([groupA])['AvgPrice'].pct_change()
+    df = df.replace([np.inf, -np.inf], np.nan)
+    return df;
+
+EY = createdataframey('EAN', 'Year')
+# In[26]:
+
+def change(df, groupB, groupC):
+    dfchange = df.groupby([groupB, groupC])['Change'].mean() * 100 + 100
+    dfchange.fillna(100, inplace=True)
+    return dfchange;
+  
+EWchange = change(EW, 'Year', 'Week')
+EMchange = change(EM, 'Year', 'Month')
+EQchange = change(EQ, 'Year', 'Quarter')
+
+# In[28]:
+
+def changey(df, groupB):
+    dfchange = df.groupby(groupB)['Change'].mean() * 100 + 100
+    dfchange.fillna(100, inplace=True)
+    return dfchange;
+
+EYchange = changey(EY, 'Year')
+
+
+# In[30]:
+
+def pickles(df, path):
+    df.to_pickle(path)
+    return;
+  
+pickles(EW, 'EW')
+pickles(EM, 'EM')
+pickles(EQ, 'EQ')
+pickles(EY, 'EY')
+pickles(EWchange, "EWchange")
+pickles(EMchange, "EMchange")
+pickles(EQchange, "EQchange")
+pickles(EYchange, "EYchange")
+
+EWchange = pd.read_pickle("EWchange")
+EMchange = pd.read_pickle("EMchange")
+EQchange = pd.read_pickle("EQchange")
+EYchange = pd.read_pickle("EYchange")
+EW = pd.read_pickle('EW')
+EM = pd.read_pickle('EM')
+EQ = pd.read_pickle('EQ')
+EY = pd.read_pickle('EY')
+
+
+# In[14]:
+
+def createplot(df,filename):
+    plot1 = df.plot()
+    fig = plot1.get_figure()
+    fig.savefig(filename+'.png')
+    plt.close("all")
+
+
+# In[16]:
+
+createplot(EWchange, 'EW')
+createplot(EMchange, 'EM')
+createplot(EQchange, 'EQ')
+
+
+# In[34]:
+
+def basechange(df, groupA, groupB, groupC):
+    df = df.groupby([groupA, groupB, groupC])['AvgPrice'].mean()
+    df = df.reset_index()
+    df = df.groupby([groupB, groupC])['AvgPrice'].mean()
+    df = df.reset_index() 
+    for index, row in df.iterrows():
+        df.loc[index,'Change'] = (row.AvgPrice - df.AvgPrice.iloc[0])/row.AvgPrice
+    df['Change2'] = df['Change'] * 100 + 100
+    df = df.drop(['AvgPrice', 'Change'], axis=1)
+    df['Week-year'] = df[groupC].astype(str) +'-' + df[groupB].astype(str)
+    df.columns = ['Year', 'Week', 'Change', 'Week-year']
+    return df;
+
+
+# In[38]:
+
+def basechangey(df, groupA, groupB):
+    df = df.groupby([groupA, groupB])['AvgPrice'].mean()
+    df = df.reset_index()
+    df = df.groupby([groupB])['AvgPrice'].mean()
+    df = df.reset_index() 
+    for index, row in df.iterrows():
+        df.loc[index,'Change'] = (row.AvgPrice - df.AvgPrice.iloc[0])/row.AvgPrice
+    df['Change2'] = df['Change'] * 100 + 100
+    df = df.drop(['AvgPrice', 'Change'], axis=1)
+    #df['Week-year'] = df[groupC].astype(str) +'-' + df[groupB].astype(str)
+    df.columns = ['Year', 'Change']
+    return df;
+
+
+# In[39]:
+
+EWbasechange = basechange(EW, 'EAN', 'Year', 'Week')
+EMbasechange = basechange(EM, 'EAN', 'Year', 'Month')
+EQbasechange = basechange(EQ, 'EAN', 'Year', 'Quarter')
+EYbasechange = basechangey(EY, 'EAN', 'Year')
+
+
+# In[29]:
+
+def createbaseplot(df,filename):
+    plot1 = df.plot(y='Change', x='Week-year')
+    fig = plot1.get_figure()
+    fig.savefig(filename+'.png')
+    plt.close("all")
+
+
+# In[54]:
+
+def createbaseploty(df,filename):
+    plot1 = df.plot(y='Change', x='Year', kind ='scatter', xticks=range(2))
+    
+    fig = plot1.get_figure()
+    fig.savefig(filename+'.png')
+    plt.close("all")
+
+
+# In[43]:
+
+createbaseplot(EWbasechange, 'EWb')
+createbaseplot(EMbasechange, 'EMb')
+createbaseplot(EQbasechange, 'EQb')
